@@ -1,0 +1,21 @@
+# Virtual environment
+.venv/
+venv/
+
+# Encrypted journal entries - keep these private!
+save/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

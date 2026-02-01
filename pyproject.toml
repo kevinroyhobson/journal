@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "journal"
+version = "0.1.0"
+description = "A fully local, private journaling system with a Claude Code-style TUI interface"
+requires-python = ">=3.10"
+dependencies = [
+    "rich>=13.7.0",
+    "prompt-toolkit>=3.0.43",
+    "httpx>=0.27.0",
+    "cryptography>=42.0.0",
+]
+
+[project.scripts]
+journal = "journal:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["journal"]
