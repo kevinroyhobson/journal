@@ -113,7 +113,7 @@ class JournalApp:
         if self.recent_entries:
             entries_text = []
             for entry in self.recent_entries:
-                date_label = entry.timestamp.strftime("%B %d, %Y")
+                date_label = entry.timestamp.strftime("%B %d, %Y, ") + entry.timestamp.strftime("%I:%M%p").lstrip("0").lower()
                 entries_text.append(f"--- {date_label} ---\n{entry.content}")
             parts.append(
                 "Here are my journal entries from the past week:\n\n"
