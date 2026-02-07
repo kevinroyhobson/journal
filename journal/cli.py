@@ -8,7 +8,6 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 
-from cryptography.fernet import InvalidToken
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import InMemoryHistory
@@ -18,23 +17,19 @@ from rich.markdown import Markdown
 
 from journal.anthropic_client import AnthropicClient
 from journal.client import Message, OllamaClient
+from journal.compact import compact
 from journal.config import DEFAULT_CONFIG, Config, load_config
+from journal.context import Context
+from journal.reader import Reader
 from journal.render import (
     StreamingRenderer,
-    print_entry,
     print_error,
     print_help,
     print_info,
-    print_saved_entries,
     print_success,
     print_welcome,
 )
 from journal.storage import (
-    SavedEntry,
-    list_entries,
-    load_entries_for_date,
-    load_memory,
-    load_recent_entries,
     save_journal_entry,
     save_memory,
 )
@@ -52,8 +47,7 @@ class JournalApp:
             self.client = OllamaClient(config)
         self.messages: list[Message] = []
         self.passphrase: str = ""
-        self.memory: str | None = None
-        self.recent_entries: list[SavedEntry] = []
+        self.context = Context()
 
         # Set up key bindings for multi-line input
         self.bindings = KeyBindings()
@@ -101,26 +95,7 @@ class JournalApp:
     @property
     def _system_prompt(self) -> str:
         """System prompt augmented with memory and recent entries."""
-        now = datetime.now().strftime("%A, %B %d, %Y at %I:%M %p")
-        parts = [self.config.system_prompt, f"The current date and time is {now}."]
-
-        if self.memory:
-            parts.append(
-                "Here is what you know about me from previous sessions:\n"
-                f"{self.memory}"
-            )
-
-        if self.recent_entries:
-            entries_text = []
-            for entry in self.recent_entries:
-                date_label = entry.timestamp.strftime("%B %d, %Y, ") + entry.timestamp.strftime("%I:%M%p").lstrip("0").lower()
-                entries_text.append(f"--- {date_label} ---\n{entry.content}")
-            parts.append(
-                "Here are my journal entries from the past week:\n\n"
-                + "\n\n".join(entries_text)
-            )
-
-        return "\n\n".join(parts)
+        return self.context.build_system_prompt(self.config.system_prompt)
 
     async def get_passphrase(self) -> str:
         """Prompt for encryption passphrase."""
@@ -251,7 +226,7 @@ class JournalApp:
             f"{m.role.upper()}: {m.content}" for m in self.messages
         )
 
-        current = self.memory or "(empty — first session)"
+        current = self.context.memory or "(empty — first session)"
 
         prompt = (
             "You maintain a long-running memory about the person you journal with. "
@@ -290,7 +265,7 @@ class JournalApp:
 
         try:
             save_memory(result, self.passphrase, self.config)
-            self.memory = result
+            self.context.memory = result
             print_success(self.console, "Memory updated.")
         except Exception as e:
             print_error(self.console, f"Failed to save memory: {e}")
@@ -318,7 +293,7 @@ class JournalApp:
 
     async def handle_memory(self):
         """Handle /memory command - view and edit long-running memory."""
-        current = self.memory or ""
+        current = self.context.memory or ""
 
         if not current:
             print_info(self.console, "No memory yet.")
@@ -362,7 +337,7 @@ class JournalApp:
         # Save
         try:
             save_memory(current, self.passphrase, self.config)
-            self.memory = current
+            self.context.memory = current
             print_success(self.console, "Memory saved.")
         except Exception as e:
             print_error(self.console, f"Failed to save memory: {e}")
@@ -427,42 +402,6 @@ class JournalApp:
         # Update long-running memory
         await self._update_memory()
 
-    async def handle_read(self):
-        """Handle /read command - list and view saved entries."""
-        entries = list_entries(self.config)
-        print_saved_entries(self.console, entries)
-
-        if not entries:
-            return
-
-        # Prompt for date selection
-        try:
-            date_input = await self.simple_session.prompt_async("Date: ", is_password=False)
-            date_input = date_input.strip()
-        except (KeyboardInterrupt, EOFError):
-            return
-
-        if not date_input:
-            return
-
-        if date_input not in entries:
-            print_error(self.console, f"No entries found for {date_input}")
-            return
-
-        # Load and display entries for that date
-        try:
-            loaded = load_entries_for_date(date_input, self.passphrase, self.config)
-            for i, entry in enumerate(loaded):
-                print_entry(self.console, entry, i)
-        except InvalidToken:
-            print_error(
-                self.console,
-                "Failed to decrypt entries. "
-                "These may have been saved with a different passphrase.",
-            )
-        except Exception as e:
-            print_error(self.console, f"Failed to load entries: {e}")
-
     def handle_clear(self):
         """Handle /clear command - clear conversation."""
         self.messages.clear()
@@ -497,9 +436,13 @@ class JournalApp:
         elif cmd == "/write":
             await self.handle_write()
         elif cmd == "/read":
-            await self.handle_read()
+            reader = Reader(self.console, self.simple_session, self.passphrase, self.config)
+            reader.memory = self.context.memory
+            await reader.handle_read()
         elif cmd == "/memory":
             await self.handle_memory()
+        elif cmd == "/compact":
+            await compact(self.client, self.console, self.passphrase, self.config)
         elif cmd == "/clear":
             self.handle_clear()
         elif cmd == "/dump":
@@ -527,36 +470,8 @@ class JournalApp:
             print_error(self.console, "Passphrase is required.")
             return
 
-        # Load long-running memory
-        try:
-            self.memory = load_memory(self.passphrase, self.config)
-            if self.memory:
-                print_info(self.console, "Memory loaded.")
-        except InvalidToken:
-            print_error(
-                self.console,
-                "Failed to decrypt memory file. "
-                "It may have been saved with a different passphrase.",
-            )
-        except Exception as e:
-            print_error(self.console, f"Failed to load memory: {e}")
-
-        # Load recent journal entries
-        try:
-            self.recent_entries = load_recent_entries(self.passphrase, self.config)
-            if self.recent_entries:
-                print_info(
-                    self.console,
-                    f"Loaded {len(self.recent_entries)} entries from the past week.",
-                )
-        except InvalidToken:
-            print_error(
-                self.console,
-                "Failed to decrypt recent entries. "
-                "They may have been saved with a different passphrase.",
-            )
-        except Exception as e:
-            print_error(self.console, f"Failed to load recent entries: {e}")
+        # Load all context (memory, recent entries, monthly/weekly memories)
+        self.context.load(self.passphrase, self.config, self.console)
 
         # Check server connection
         if not await self.check_server():

@@ -97,7 +97,7 @@ def print_welcome(console: Console, model: str = ""):
     console.print(
         Panel(
             f"[bold #ffff00]Journal[/bold #ffff00] - {subtitle}\n\n"
-            "Commands: /help, /write, /read, /memory, /clear, /exit\n"
+            "Commands: /help, /write, /read, /memory, /compact, /clear, /exit\n"
             "Multi-line: [bold]Shift+Enter[/bold] or [bold]Alt+Enter[/bold] for newline",
             title="Welcome",
             border_style="#ffff00",
@@ -113,8 +113,9 @@ def print_help(console: Console):
 
 - `/help` - Show this help message
 - `/write` - Save current conversation (encrypted)
-- `/read` - List and view saved entries
+- `/read` - Browse entries, conversations, and memories
 - `/memory` - View and edit long-running memory
+- `/compact` - Generate weekly and monthly memory summaries
 - `/clear` - Clear conversation history
 - `/exit` or `/quit` - Exit the application
 
@@ -176,4 +177,38 @@ def print_entry(console: Console, entry: SavedEntry, index: int):
     # Display the journal entry content
     console.print(Markdown(entry.content))
 
+    console.print()
+
+
+def print_read_menu(console: Console):
+    """Print the /read content type selection menu."""
+    console.print("[bold]What would you like to read?[/bold]")
+    console.print()
+    console.print("  [#ffff00]1[/#ffff00] Journal entries")
+    console.print("  [#ffff00]2[/#ffff00] Raw conversations")
+    console.print("  [#ffff00]3[/#ffff00] Monthly memories")
+    console.print("  [#ffff00]4[/#ffff00] Weekly memories")
+    console.print("  [#ffff00]5[/#ffff00] Long-term memory")
+    console.print()
+
+
+def print_memory_summary(console: Console, label: str, content: str):
+    """Print a memory summary with a header."""
+    console.print(f"[bold #ffff00]{label}[/bold #ffff00]")
+    console.print("-" * 40)
+    console.print()
+    console.print(Markdown(content))
+    console.print()
+
+
+def print_conversation(console: Console, messages, index: int, time_str: str):
+    """Print a raw conversation transcript."""
+    console.print(f"[bold #ffff00]Conversation {index + 1}[/bold #ffff00] - {time_str}")
+    console.print("-" * 40)
+    console.print()
+    for msg in messages:
+        role_color = "#ffff00" if msg.role == "user" else "cyan"
+        console.print(f"[bold {role_color}]{msg.role.title()}:[/bold {role_color}]")
+        console.print(Markdown(msg.content))
+        console.print()
     console.print()
