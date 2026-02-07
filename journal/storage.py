@@ -1,11 +1,12 @@
-"""Save and load encrypted conversations."""
+"""Save and load encrypted journal entries in S3."""
 
 import json
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from pathlib import Path
 
+import boto3
+from botocore.exceptions import ClientError
 from cryptography.fernet import InvalidToken
 
 from journal.client import Message
@@ -13,28 +14,33 @@ from journal.config import Config, DEFAULT_CONFIG
 from journal.crypto import decrypt, encrypt
 
 
+def _s3_client():
+    """Create an S3 client using the default boto3 credential chain."""
+    return boto3.client("s3")
+
+
 @dataclass
 class SavedEntry:
     """A saved journal entry."""
 
-    filepath: Path
+    key: str
     timestamp: datetime
-    content: str  # The journal entry text
-    messages: list[Message] | None = None  # Optional conversation transcript
+    content: str
+    messages: list[Message] | None = None
 
 
 def save_journal_entry(
     content: str,
     passphrase: str,
     config: Config = DEFAULT_CONFIG,
-) -> Path:
-    """Save a journal entry to an encrypted file.
+) -> str:
+    """Save a journal entry to an encrypted S3 object.
 
-    Returns the path to the saved file.
+    Returns the S3 key of the saved object.
     """
     timestamp = datetime.now()
     filename = timestamp.strftime("%Y-%m-%dT%H-%M-%S") + ".enc"
-    filepath = config.save_dir / filename
+    key = config.s3_prefix + filename
 
     data = {
         "timestamp": timestamp.isoformat(),
@@ -43,35 +49,49 @@ def save_journal_entry(
     plaintext = json.dumps(data, indent=2)
 
     encrypted = encrypt(plaintext, passphrase)
-    filepath.write_bytes(encrypted)
+    _s3_client().put_object(Bucket=config.s3_bucket, Key=key, Body=encrypted)
 
-    return filepath
+    return key
 
 
-def list_entries(config: Config = DEFAULT_CONFIG) -> dict[str, list[Path]]:
+def list_entries(config: Config = DEFAULT_CONFIG) -> dict[str, list[str]]:
     """List all saved entries grouped by date.
 
-    Returns a dict mapping date strings to lists of file paths.
+    Returns a dict mapping date strings to lists of S3 keys.
     """
-    entries: dict[str, list[Path]] = defaultdict(list)
+    s3 = _s3_client()
+    entries: dict[str, list[str]] = defaultdict(list)
 
-    for filepath in sorted(config.save_dir.glob("*.enc")):
-        # Parse date from filename
-        try:
-            date_str = filepath.stem.split("T")[0]
-            entries[date_str].append(filepath)
-        except (IndexError, ValueError):
-            continue
+    paginator = s3.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=config.s3_bucket, Prefix=config.s3_prefix):
+        for obj in page.get("Contents", []):
+            key = obj["Key"]
+            filename = key.removeprefix(config.s3_prefix)
+
+            # Skip non-entry files (e.g. memory/long.enc)
+            if "/" in filename or not filename.endswith(".enc"):
+                continue
+
+            try:
+                date_str = filename.split("T")[0]
+                entries[date_str].append(key)
+            except (IndexError, ValueError):
+                continue
+
+    # Sort keys within each date
+    for date_str in entries:
+        entries[date_str].sort()
 
     return dict(entries)
 
 
-def load_entry(filepath: Path, passphrase: str) -> SavedEntry:
-    """Load and decrypt a single entry.
+def load_entry(key: str, passphrase: str, config: Config = DEFAULT_CONFIG) -> SavedEntry:
+    """Load and decrypt a single entry from S3.
 
     Raises InvalidToken if passphrase is wrong.
     """
-    encrypted = filepath.read_bytes()
+    response = _s3_client().get_object(Bucket=config.s3_bucket, Key=key)
+    encrypted = response["Body"].read()
     plaintext = decrypt(encrypted, passphrase)
     data = json.loads(plaintext)
 
@@ -82,13 +102,12 @@ def load_entry(filepath: Path, passphrase: str) -> SavedEntry:
     messages = None
     if "messages" in data:
         messages = [Message(role=m["role"], content=m["content"]) for m in data["messages"]]
-        # If no content but has messages, generate content from messages for display
         if not content:
             content = "\n\n".join(
                 f"**{m.role.title()}:** {m.content}" for m in messages
             )
 
-    return SavedEntry(filepath=filepath, timestamp=timestamp, content=content, messages=messages)
+    return SavedEntry(key=key, timestamp=timestamp, content=content, messages=messages)
 
 
 def load_entries_for_date(
@@ -98,17 +117,12 @@ def load_entries_for_date(
 
     Raises InvalidToken if passphrase is wrong.
     """
-    entries = []
     all_entries = list_entries(config)
 
     if date_str not in all_entries:
         return []
 
-    for filepath in all_entries[date_str]:
-        entry = load_entry(filepath, passphrase)
-        entries.append(entry)
-
-    return entries
+    return [load_entry(key, passphrase, config) for key in all_entries[date_str]]
 
 
 def load_recent_entries(
@@ -123,46 +137,46 @@ def load_recent_entries(
     all_dates = list_entries(config)
     entries = []
 
-    for date_str, filepaths in all_dates.items():
+    for date_str, keys in all_dates.items():
         try:
             entry_date = date.fromisoformat(date_str)
         except ValueError:
             continue
         if entry_date >= cutoff:
-            for filepath in filepaths:
-                entries.append(load_entry(filepath, passphrase))
+            for key in keys:
+                entries.append(load_entry(key, passphrase, config))
 
     entries.sort(key=lambda e: e.timestamp)
     return entries
 
 
 def load_memory(passphrase: str, config: Config = DEFAULT_CONFIG) -> str | None:
-    """Load the long-running memory file.
+    """Load the long-running memory file from S3.
 
     Returns the decrypted memory text, or None if no memory file exists.
     Raises InvalidToken if passphrase is wrong.
     """
-    memory_file = config.save_dir / "memory" / "long.enc"
-    if not memory_file.exists():
-        return None
+    key = config.s3_prefix + "memory/long.enc"
+    try:
+        response = _s3_client().get_object(Bucket=config.s3_bucket, Key=key)
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "NoSuchKey":
+            return None
+        raise
 
-    encrypted = memory_file.read_bytes()
+    encrypted = response["Body"].read()
     return decrypt(encrypted, passphrase)
 
 
-def save_memory(content: str, passphrase: str, config: Config = DEFAULT_CONFIG) -> Path:
-    """Save the long-running memory to an encrypted file.
+def save_memory(content: str, passphrase: str, config: Config = DEFAULT_CONFIG) -> str:
+    """Save the long-running memory to an encrypted S3 object.
 
-    Creates the memory directory if needed. Returns the file path.
+    Returns the S3 key.
     """
-    memory_dir = config.save_dir / "memory"
-    memory_dir.mkdir(parents=True, exist_ok=True)
-    memory_file = memory_dir / "long.enc"
-
+    key = config.s3_prefix + "memory/long.enc"
     encrypted = encrypt(content, passphrase)
-    memory_file.write_bytes(encrypted)
-
-    return memory_file
+    _s3_client().put_object(Bucket=config.s3_bucket, Key=key, Body=encrypted)
+    return key
 
 
 __all__ = [

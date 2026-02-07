@@ -2,7 +2,6 @@
 
 import time
 import threading
-from pathlib import Path
 
 from rich.console import Console
 from rich.live import Live
@@ -147,7 +146,7 @@ def print_info(console: Console, message: str):
     console.print()
 
 
-def print_saved_entries(console: Console, entries: dict[str, list[Path]]):
+def print_saved_entries(console: Console, entries: dict[str, list[str]]):
     """Print list of saved entries grouped by date."""
     if not entries:
         console.print("[dim]No saved entries found.[/dim]")

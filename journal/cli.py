@@ -418,8 +418,8 @@ class JournalApp:
 
         # Save the final entry
         try:
-            filepath = save_journal_entry(draft, self.passphrase, self.config)
-            print_success(self.console, f"Journal entry saved to {filepath}")
+            key = save_journal_entry(draft, self.passphrase, self.config)
+            print_success(self.console, f"Journal entry saved to s3://{self.config.s3_bucket}/{key}")
         except Exception as e:
             print_error(self.console, f"Failed to save: {e}")
             return
