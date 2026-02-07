@@ -27,7 +27,6 @@ class Config:
 
     # S3 storage
     s3_bucket: str = ""
-    s3_prefix: str = "journal/"
 
     system_prompt: str = (
         "You're helping me talk through my day. Ask follow-up questions to help me "
@@ -38,7 +37,7 @@ class Config:
 
 KNOWN_FIELDS = {
     "provider", "ollama_base_url", "model", "fallback_model",
-    "anthropic_api_key", "anthropic_model", "s3_bucket", "s3_prefix",
+    "anthropic_api_key", "anthropic_model", "s3_bucket",
     "system_prompt",
 }
 

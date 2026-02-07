@@ -13,6 +13,10 @@ from journal.client import Message
 from journal.config import Config, DEFAULT_CONFIG
 from journal.crypto import decrypt, encrypt
 
+ENTRIES_PREFIX = "entries/"
+RAW_PREFIX = "raw/"
+MEMORY_KEY = "memory/long.enc"
+
 
 def _s3_client():
     """Create an S3 client using the default boto3 credential chain."""
@@ -31,27 +35,41 @@ class SavedEntry:
 
 def save_journal_entry(
     content: str,
+    messages: list[Message],
     passphrase: str,
     config: Config = DEFAULT_CONFIG,
 ) -> str:
-    """Save a journal entry to an encrypted S3 object.
+    """Save a journal entry and raw conversation to encrypted S3 objects.
 
-    Returns the S3 key of the saved object.
+    The entry goes to entries/{filename} and the raw conversation goes
+    to raw/{filename} with the same timestamp, so they can be correlated
+    by filename.
+
+    Returns the S3 key of the journal entry.
     """
+    s3 = _s3_client()
     timestamp = datetime.now()
     filename = timestamp.strftime("%Y-%m-%dT%H-%M-%S") + ".enc"
-    key = config.s3_prefix + filename
 
-    data = {
+    # Save journal entry
+    entry_key = ENTRIES_PREFIX + filename
+    entry_data = {
         "timestamp": timestamp.isoformat(),
         "content": content,
     }
-    plaintext = json.dumps(data, indent=2)
+    encrypted = encrypt(json.dumps(entry_data, indent=2), passphrase)
+    s3.put_object(Bucket=config.s3_bucket, Key=entry_key, Body=encrypted)
 
-    encrypted = encrypt(plaintext, passphrase)
-    _s3_client().put_object(Bucket=config.s3_bucket, Key=key, Body=encrypted)
+    # Save raw conversation
+    raw_key = RAW_PREFIX + filename
+    raw_data = {
+        "timestamp": timestamp.isoformat(),
+        "messages": [{"role": m.role, "content": m.content} for m in messages],
+    }
+    encrypted = encrypt(json.dumps(raw_data, indent=2), passphrase)
+    s3.put_object(Bucket=config.s3_bucket, Key=raw_key, Body=encrypted)
 
-    return key
+    return entry_key
 
 
 def list_entries(config: Config = DEFAULT_CONFIG) -> dict[str, list[str]]:
@@ -63,13 +81,12 @@ def list_entries(config: Config = DEFAULT_CONFIG) -> dict[str, list[str]]:
     entries: dict[str, list[str]] = defaultdict(list)
 
     paginator = s3.get_paginator("list_objects_v2")
-    for page in paginator.paginate(Bucket=config.s3_bucket, Prefix=config.s3_prefix):
+    for page in paginator.paginate(Bucket=config.s3_bucket, Prefix=ENTRIES_PREFIX):
         for obj in page.get("Contents", []):
             key = obj["Key"]
-            filename = key.removeprefix(config.s3_prefix)
+            filename = key.removeprefix(ENTRIES_PREFIX)
 
-            # Skip non-entry files (e.g. memory/long.enc)
-            if "/" in filename or not filename.endswith(".enc"):
+            if not filename.endswith(".enc"):
                 continue
 
             try:
@@ -78,7 +95,6 @@ def list_entries(config: Config = DEFAULT_CONFIG) -> dict[str, list[str]]:
             except (IndexError, ValueError):
                 continue
 
-    # Sort keys within each date
     for date_str in entries:
         entries[date_str].sort()
 
@@ -156,9 +172,8 @@ def load_memory(passphrase: str, config: Config = DEFAULT_CONFIG) -> str | None:
     Returns the decrypted memory text, or None if no memory file exists.
     Raises InvalidToken if passphrase is wrong.
     """
-    key = config.s3_prefix + "memory/long.enc"
     try:
-        response = _s3_client().get_object(Bucket=config.s3_bucket, Key=key)
+        response = _s3_client().get_object(Bucket=config.s3_bucket, Key=MEMORY_KEY)
     except ClientError as e:
         if e.response["Error"]["Code"] == "NoSuchKey":
             return None
@@ -173,10 +188,9 @@ def save_memory(content: str, passphrase: str, config: Config = DEFAULT_CONFIG) 
 
     Returns the S3 key.
     """
-    key = config.s3_prefix + "memory/long.enc"
     encrypted = encrypt(content, passphrase)
-    _s3_client().put_object(Bucket=config.s3_bucket, Key=key, Body=encrypted)
-    return key
+    _s3_client().put_object(Bucket=config.s3_bucket, Key=MEMORY_KEY, Body=encrypted)
+    return MEMORY_KEY
 
 
 __all__ = [
