@@ -207,13 +207,21 @@ class JournalApp:
                 f"Conversation:\n{conversation_text}"
             )
 
+        # Build a system prompt for entry generation with writing style if available
+        entry_system_prompt = None
+        if self.context.writing_style:
+            entry_system_prompt = (
+                "You are writing a journal entry. Match the following writing style:\n\n"
+                f"{self.context.writing_style}"
+            )
+
         # Generate with streaming feedback
         renderer = StreamingRenderer(self.console)
         renderer.start()
 
         messages = [Message(role="user", content=prompt)]
         try:
-            async for chunk in self.client.chat_stream(messages, system_prompt=None):
+            async for chunk in self.client.chat_stream(messages, system_prompt=entry_system_prompt):
                 renderer.update(chunk)
         finally:
             renderer.finish()

@@ -1,6 +1,7 @@
 """Context loading and system prompt assembly."""
 
 from datetime import date, datetime
+from pathlib import Path
 
 from cryptography.fernet import InvalidToken
 from rich.console import Console
@@ -15,6 +16,8 @@ from journal.storage import (
     load_recent_entries,
 )
 
+CLAUDE_MD_PATH = Path.home() / ".claude" / "claude.md"
+
 
 class Context:
     """Holds session context loaded at startup and assembles the system prompt."""
@@ -24,9 +27,19 @@ class Context:
         self.recent_entries: list[SavedEntry] = []
         self.monthly_memories: list[tuple[str, str]] = []
         self.weekly_memories: list[tuple[date, str]] = []
+        self.writing_style: str | None = None
 
     def load(self, passphrase: str, config: Config, console: Console):
         """Load all context at startup. Prints status/errors to console."""
+        # Writing style from ~/.claude/claude.md
+        try:
+            if CLAUDE_MD_PATH.is_file():
+                self.writing_style = CLAUDE_MD_PATH.read_text().strip() or None
+                if self.writing_style:
+                    print_info(console, "Writing style loaded from ~/.claude/claude.md")
+        except Exception as e:
+            print_error(console, f"Failed to load ~/.claude/claude.md: {e}")
+
         # Long-running memory
         try:
             self.memory = load_memory(passphrase, config)
