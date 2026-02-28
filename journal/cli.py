@@ -201,9 +201,10 @@ class JournalApp:
         else:
             prompt = (
                 f"Today's date is {today}.\n\n"
-                f"Write a journal entry based on this conversation. Include what "
-                f"happened, but focus on what I seemed to be processing or working "
-                f"through. Note any tensions or unresolved feelings.\n\n"
+                f"Write a journal entry in first person, as if I wrote it myself. "
+                f"It should read like my own thoughts — not a summary of a conversation. "
+                f"Never reference the conversation or that I 'said' or 'talked about' something. "
+                f"Just think through the stuff on my mind, in my voice.\n\n"
                 f"Conversation:\n{conversation_text}"
             )
 
@@ -221,7 +222,10 @@ class JournalApp:
 
         messages = [Message(role="user", content=prompt)]
         try:
-            async for chunk in self.client.chat_stream(messages, system_prompt=entry_system_prompt):
+            async for chunk in self.client.chat_stream(
+                messages, system_prompt=entry_system_prompt,
+                model=self.config.generation_model,
+            ):
                 renderer.update(chunk)
         finally:
             renderer.finish()
@@ -235,17 +239,26 @@ class JournalApp:
         )
 
         current = self.context.memory or "(empty — first session)"
+        now = datetime.now().strftime("%A, %B %d, %Y")
 
         prompt = (
             "You maintain a long-running memory about the person you journal with. "
-            "This memory is loaded at the start of every session so you can reference "
-            "it and already know important context about their life.\n\n"
+            "This memory is loaded at the start of every session so you already know "
+            f"who they are. Today's date is {now}.\n\n"
+            "Focus on STABLE IDENTITY information:\n"
+            "- Who they are: name, age, location, occupation, demographics\n"
+            "- Key relationships: partner, family, close friends (names + basic context)\n"
+            "- Recurring life themes, values, personality traits\n"
+            "- Long-term goals or commitments\n\n"
+            "Do NOT track:\n"
+            "- Current situations, ongoing events, or recent happenings "
+            "(monthly/weekly summaries handle those)\n"
+            "- Temporary moods, transient concerns, or one-off events\n"
+            "- Anything that will likely change within a few weeks\n\n"
             f"Current memory:\n{current}\n\n"
             f"Today's conversation:\n{conversation_text}\n\n"
-            "Based on this conversation, write an updated version of the memory. "
-            "Include everything from the current memory that's still relevant, "
-            "and add any new important context (people, ongoing situations, "
-            "recurring themes, important events). Keep it concise — factual "
+            "Write an updated version of the memory. Aggressively drop anything "
+            "that isn't stable identity info. Keep it under 50 lines — factual "
             "notes, not prose. If nothing new is worth remembering, respond "
             "with exactly: NO_CHANGES"
         )
@@ -257,7 +270,10 @@ class JournalApp:
         renderer.start()
 
         try:
-            async for chunk in self.client.chat_stream(messages, system_prompt=None):
+            async for chunk in self.client.chat_stream(
+                messages, system_prompt=None,
+                model=self.config.generation_model,
+            ):
                 renderer.update(chunk)
         except Exception as e:
             renderer.finish()
@@ -292,7 +308,10 @@ class JournalApp:
 
         messages = [Message(role="user", content=prompt)]
         try:
-            async for chunk in self.client.chat_stream(messages, system_prompt=None):
+            async for chunk in self.client.chat_stream(
+                messages, system_prompt=None,
+                model=self.config.generation_model,
+            ):
                 renderer.update(chunk)
         finally:
             renderer.finish()
@@ -465,11 +484,13 @@ class JournalApp:
 
     async def run(self):
         """Main application loop."""
-        model_name = (
-            self.config.anthropic_model
-            if self.config.provider == "anthropic"
-            else self.config.model
-        )
+        if self.config.provider == "anthropic":
+            model_name = (
+                f"{self.config.conversation_model} (chat) / "
+                f"{self.config.generation_model} (gen)"
+            )
+        else:
+            model_name = self.config.model
         print_welcome(self.console, model=model_name)
 
         # Get passphrase
@@ -538,7 +559,17 @@ def main():
     parser.add_argument(
         "-m", "--model",
         default=None,
-        help="Model name (default: provider-specific)",
+        help="Model name (sets both conversation and generation for Anthropic)",
+    )
+    parser.add_argument(
+        "--conversation-model",
+        default=None,
+        help="Model for conversation (Anthropic only, overrides -m)",
+    )
+    parser.add_argument(
+        "--generation-model",
+        default=None,
+        help="Model for entry/memory generation (Anthropic only, overrides -m)",
     )
     args = parser.parse_args()
 
@@ -548,9 +579,14 @@ def main():
         config.provider = args.provider
     if args.model:
         if config.provider == "anthropic":
-            config.anthropic_model = args.model
+            config.conversation_model = args.model
+            config.generation_model = args.model
         else:
             config.model = args.model
+    if args.conversation_model:
+        config.conversation_model = args.conversation_model
+    if args.generation_model:
+        config.generation_model = args.generation_model
 
     try:
         app = JournalApp(config=config)

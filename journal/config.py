@@ -23,7 +23,8 @@ class Config:
 
     # Anthropic settings
     anthropic_api_key: str = ""
-    anthropic_model: str = "claude-sonnet-4-5"
+    conversation_model: str = "claude-haiku-4-5-20251001"
+    generation_model: str = "claude-opus-4-6"
 
     # S3 storage
     s3_bucket: str = ""
@@ -37,8 +38,8 @@ class Config:
 
 KNOWN_FIELDS = {
     "provider", "ollama_base_url", "model", "fallback_model",
-    "anthropic_api_key", "anthropic_model", "s3_bucket",
-    "system_prompt",
+    "anthropic_api_key", "conversation_model", "generation_model",
+    "s3_bucket", "system_prompt",
 }
 
 

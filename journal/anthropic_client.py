@@ -19,7 +19,7 @@ class AnthropicClient:
     def __init__(self, config: Config):
         self.config = config
         self.api_key = config.anthropic_api_key
-        self.model = config.anthropic_model
+        self.model = config.conversation_model
 
     async def check_connection(self) -> bool:
         """Check that an API key is configured."""
@@ -30,7 +30,8 @@ class AnthropicClient:
         return self.model
 
     async def chat_stream(
-        self, messages: list[Message], system_prompt: str | None = None
+        self, messages: list[Message], system_prompt: str | None = None,
+        model: str | None = None,
     ) -> AsyncIterator[str]:
         """Stream a chat completion via SSE."""
         api_messages = []
@@ -40,7 +41,7 @@ class AnthropicClient:
             api_messages.append({"role": msg.role, "content": msg.content})
 
         payload: dict = {
-            "model": self.model,
+            "model": model or self.model,
             "messages": api_messages,
             "stream": True,
             "max_tokens": DEFAULT_MAX_TOKENS,

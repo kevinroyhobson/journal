@@ -73,10 +73,11 @@ class OllamaClient:
         return self._model
 
     async def chat_stream(
-        self, messages: list[Message], system_prompt: str | None = None
+        self, messages: list[Message], system_prompt: str | None = None,
+        model: str | None = None,
     ) -> AsyncIterator[str]:
         """Stream a chat completion response."""
-        model = await self.select_model()
+        model = model or await self.select_model()
 
         # Build messages list
         api_messages = []

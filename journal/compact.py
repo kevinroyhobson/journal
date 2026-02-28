@@ -100,7 +100,10 @@ async def compact(client, console: Console, passphrase: str, config: Config):
         renderer.start()
         try:
             messages = [Message(role="user", content=prompt)]
-            async for chunk in client.chat_stream(messages, system_prompt=None):
+            async for chunk in client.chat_stream(
+                messages, system_prompt=None,
+                model=config.generation_model,
+            ):
                 renderer.update(chunk)
         except Exception as e:
             renderer.finish()
@@ -153,7 +156,10 @@ async def compact(client, console: Console, passphrase: str, config: Config):
         renderer.start()
         try:
             messages = [Message(role="user", content=prompt)]
-            async for chunk in client.chat_stream(messages, system_prompt=None):
+            async for chunk in client.chat_stream(
+                messages, system_prompt=None,
+                model=config.generation_model,
+            ):
                 renderer.update(chunk)
         except Exception as e:
             renderer.finish()
