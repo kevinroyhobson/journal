@@ -9,9 +9,11 @@ from datetime import datetime
 from pathlib import Path
 
 from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.styles import Style
 from rich.console import Console
 from rich.markdown import Markdown
 
@@ -70,11 +72,24 @@ class JournalApp:
             """Insert newline on Shift+Enter (kitty protocol)."""
             event.current_buffer.insert_text("\n")
 
+        input_style = Style.from_dict({
+            "": "#ffff00",
+            "completion-menu": "bg:#333333 #ffff00",
+            "completion-menu.completion.current": "bg:#ffff00 #000000",
+        })
+        slash_completer = WordCompleter(
+            ["/help", "/write", "/read", "/memory", "/compact",
+             "/clear", "/dump", "/load", "/exit", "/quit"],
+            sentence=True,
+        )
+
         self.session: PromptSession = PromptSession(
             history=InMemoryHistory(),
             key_bindings=self.bindings,
+            completer=slash_completer,
             multiline=True,  # Enable multiline for paste support
             enable_open_in_editor=True,
+            style=input_style,
         )
 
         # Separate session for simple prompts (no multiline)

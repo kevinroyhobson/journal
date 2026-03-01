@@ -90,18 +90,25 @@ class StreamingRenderer:
         return self.buffer
 
 
+LOGO = fr"""
+                                      __
+      __ ___  __  ___________  ____  / /
+     / / __ \/ / / / ___/ __ \/ __ `/ /
+    / / /_/ / /_/ / /  / / / / /_/ / /
+ __/ /\____/\__,_/_/  /_/ /_/\__,_/_/
+/___/
+"""
+
+
 def print_welcome(console: Console, model: str = ""):
     """Print welcome message."""
-    subtitle = f"{model}-Powered Journaling" if model else "Journaling"
+    console.print(f"[bold #ffff00]{LOGO}[/bold #ffff00]")
+    if model:
+        console.print(f"  [dim]{model}[/dim]")
     console.print()
     console.print(
-        Panel(
-            f"[bold #ffff00]Journal[/bold #ffff00] - {subtitle}\n\n"
-            "Commands: /help, /write, /read, /memory, /compact, /clear, /exit\n"
-            "Multi-line: [bold]Shift+Enter[/bold] or [bold]Alt+Enter[/bold] for newline",
-            title="Welcome",
-            border_style="#ffff00",
-        )
+        "  Commands: /help, /write, /read, /memory, /compact, /clear, /exit\n"
+        "  Multi-line: [bold]Shift+Enter[/bold] or [bold]Alt+Enter[/bold] for newline"
     )
     console.print()
 
