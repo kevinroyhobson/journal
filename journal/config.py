@@ -29,6 +29,9 @@ class Config:
     # S3 storage
     s3_bucket: str = ""
 
+    # Web search (Anthropic server-side, costs $10/1K searches)
+    web_search: bool = False
+
     system_prompt: str = (
         "You're helping me talk through my day. Ask follow-up questions to help me "
         "process what happened and how I'm feeling. Be curious but not pushy. Don't rush "
@@ -39,7 +42,7 @@ class Config:
 KNOWN_FIELDS = {
     "provider", "ollama_base_url", "model", "fallback_model",
     "anthropic_api_key", "conversation_model", "generation_model",
-    "s3_bucket", "system_prompt",
+    "s3_bucket", "web_search", "system_prompt",
 }
 
 

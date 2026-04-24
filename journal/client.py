@@ -74,7 +74,7 @@ class OllamaClient:
 
     async def chat_stream(
         self, messages: list[Message], system_prompt: str | None = None,
-        model: str | None = None,
+        model: str | None = None, tools: list | None = None,
     ) -> AsyncIterator[str]:
         """Stream a chat completion response."""
         model = model or await self.select_model()

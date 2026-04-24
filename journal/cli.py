@@ -37,6 +37,12 @@ from journal.storage import (
 )
 
 
+WEB_TOOLS = [
+    {"type": "web_search_20250305", "name": "web_search", "max_uses": 5},
+    {"type": "web_fetch_20250910", "name": "web_fetch", "max_uses": 3},
+]
+
+
 class JournalApp:
     """Main journal application."""
 
@@ -108,9 +114,22 @@ class JournalApp:
         return HTML(f'<style fg="#ffff00">{line}</style>')
 
     @property
+    def _use_web_search(self) -> bool:
+        """Whether web search tools are enabled for this session."""
+        return self.config.web_search and self.config.provider == "anthropic"
+
+    @property
     def _system_prompt(self) -> str:
         """System prompt augmented with memory and recent entries."""
-        return self.context.build_system_prompt(self.config.system_prompt)
+        base = self.config.system_prompt
+        if self._use_web_search:
+            base += (
+                "\n\nYou have web search and web fetch tools available. "
+                "Use web search when the user asks about current events, "
+                "recent news, or when up-to-date information would enrich "
+                "the conversation. Use web fetch to read specific URLs."
+            )
+        return self.context.build_system_prompt(base)
 
     async def get_passphrase(self) -> str:
         """Prompt for encryption passphrase."""
@@ -152,14 +171,31 @@ class JournalApp:
 
     async def opener(self):
         """Generate an opening message from the model."""
-        prompt = [Message(role="user", content="Start the conversation.")]
+        if self._use_web_search:
+            content = (
+                "Start the conversation. Search for major US/world news today, "
+                "and anything relevant to what you know about the user from memory — "
+                "sports teams they follow, their work/industry, interests, local news. "
+                "Only mention what feels naturally relevant. If nothing interesting "
+                "came up, don't force it."
+            )
+        else:
+            content = "Start the conversation."
+
+        prompt = [Message(role="user", content=content)]
         renderer = StreamingRenderer(self.console)
         renderer.start()
 
         try:
-            async for chunk in self.client.chat_stream(
-                prompt, system_prompt=self._system_prompt
-            ):
+            if self._use_web_search:
+                stream = self.client.chat_stream_with_tools(
+                    prompt, system_prompt=self._system_prompt, tools=WEB_TOOLS,
+                )
+            else:
+                stream = self.client.chat_stream(
+                    prompt, system_prompt=self._system_prompt,
+                )
+            async for chunk in stream:
                 renderer.update(chunk)
         except Exception as e:
             renderer.finish()
@@ -180,9 +216,15 @@ class JournalApp:
         renderer.start()
 
         try:
-            async for chunk in self.client.chat_stream(
-                self.messages, system_prompt=self._system_prompt
-            ):
+            if self._use_web_search:
+                stream = self.client.chat_stream_with_tools(
+                    self.messages, system_prompt=self._system_prompt, tools=WEB_TOOLS,
+                )
+            else:
+                stream = self.client.chat_stream(
+                    self.messages, system_prompt=self._system_prompt,
+                )
+            async for chunk in stream:
                 renderer.update(chunk)
         except Exception as e:
             renderer.finish()
